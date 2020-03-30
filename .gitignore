@@ -1,0 +1,5 @@
+.coverage
+.mypy_cache
+.vscode
+__pycache__
+poetry.lock

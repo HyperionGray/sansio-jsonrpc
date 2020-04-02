@@ -1,7 +1,8 @@
 check: mypy test
 
 mypy:
-	mypy jsonrpc/
+	mypy sansio_jsonrpc/
 
 test:
-	pytest --cov=jsonrpc/ tests/
+	pytest --cov=sansio_jsonrpc/ tests/
+	coverage report -m

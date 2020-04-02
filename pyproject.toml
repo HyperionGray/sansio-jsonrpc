@@ -4,7 +4,7 @@ line-length = 88
 [tool.poetry]
 name = "sansio-jsonrpc"
 version = "0.1.0"
-description = "JSON RPC v2.0 Sans I/O"
+description = "JSON-RPC v2.0 Sans I/O"
 license = "MIT"
 authors = ["Mark E. Haase <mehaase@gmail.com>"]
 

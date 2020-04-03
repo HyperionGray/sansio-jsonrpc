@@ -1,5 +1,11 @@
 # JSON-RPC v2.0 Sans I/O
 
+[![PyPI](https://img.shields.io/pypi/v/sansio-jsonrpc.svg?style=flat-square)](https://pypi.org/project/sansio-jsonrpc/)
+![Python Versions](https://img.shields.io/pypi/pyversions/sansio-jsonrpc.svg?style=flat-square)
+![MIT License](https://img.shields.io/github/license/HyperionGray/sansio-jsonrpc.svg?style=flat-square)
+[![Build Status](https://img.shields.io/travis/com/HyperionGray/sansio-jsonrpc.svg?style=flat-square&branch=master)](https://travis-ci.com/HyperionGray/sansio-jsonrpc)
+[![Coverage](https://img.shields.io/coveralls/github/HyperionGray/sansio-jsonrpc.svg?style=flat-square)](https://coveralls.io/github/HyperionGray/sansio-jsonrpc?branch=master)
+
 This project provides [a Sans I/O](https://sans-io.readthedocs.io/) implementation of
 [JSON-RPC v 2.0](https://www.jsonrpc.org/specification). This means that the library
 handles all of the encoding, decoding, framing, and logic required by the protocol
@@ -16,8 +22,7 @@ an I/O framework of your choosing.
 from sansio_jsonrpc import JsonRpcPeer, JsonRpcException
 
 client = JsonRpcPeer()
-bytes_to_send = client.request(
-    callback=handle_response,
+request_id, bytes_to_send = client.request(
     method='open_vault_door',
     args={'employee': 'Mark', 'pin': 1234},
 )
@@ -25,9 +30,8 @@ bytes_to_send = client.request(
 
 First, we instantiate the client. We call the `request` method to create a new JSON-RPC
 request and convert it into a `bytes` representation that is suitable for sending to the
-server. The method also takes a callback that will be invoked when the response to this
-request is received. The code for the callback is listed below, but first let's see how
-to send this request to the server.
+server. The method also returns a `request_id`, which is a hashable value that can be
+used to correlate any future response back to the request that initiated it.
 
 ```python
 connection.send(bytes_to_send)
@@ -42,32 +46,36 @@ choosing.
 
 ```python
 try:
-    client.recv(received_bytes)
+    messages = client.parse(received_bytes)
 except JsonRpcException as jre:
-    print('Exception from received data!', jre)
+    print('Exception while parsing response', jre)
 ```
 
 In this block, we feed the data received from the remote machine into the client
-object's `recv()` method. This method parses the data into a `JsonRpcResponse` object
-and then passes that object into the callback. Note that `recv()` always needs to be
-wrapped in `try/except`. For example, if the remote machine sent an invalid request that
-could not be parsed, that would raise an exception here.
+object's `parse()` method. This method parses the incoming data and returns an iterable
+containing messages sent by the server. (In the current implementation, the iterable
+always contains exactly 1 message, but the API is designed this way to allow for future
+enhancements such as a streaming JSON parser that can return 0-n messages after parsing
+each chunk of data.)
 
 ```python
-def handle_response(response: JsonRpcResponse) -> None:
+for response in messages:
+    assert isinstance(response, JsonRpcResponse)
+    print('received a response:', response.id)
     if response.is_success:
-        print(response.result)     # {"vault_status": "open"}
+        print('success:', response.result)
     else:
-        print('Uh oh, JSON-RPC error code:', response.error.code)
-        raise JsonRpcException.exc_from_error(response.error)
+        print('error:', response.error)
 ```
 
-This final block shows how to write a callback. The callback receives one argument, the
-response object. It is a good idea to check if it is a success response or an error
-response. If it is a success, then the `response.result` will contain a valid JSON
-object (i.e. str, int, float, list, dict, or None). If the response is an error, then
-the `response.error` object is set to a `JsonRpcError` object that contains information
-about the error. You can also
+Finally, we iterate over the messages. In the case of a client, these messages will
+always be `JsonRpcReponse` objects, which contain either result or error information.
+The `response.id` field should match the `request_id` obtained earlier.
+
+In concurrent code, you will probably want to multiplex requests and responses on the
+same connection. This library does not implement multiplexing itself because
+multiplexing with appropriate flow control (see "Back Pressure" below) is going to
+depend on the transport and I/O framework you are using.
 
 ## Server Example
 
@@ -193,6 +201,21 @@ The `JsonRpcException.exc_from_error(...)` method will automatically select the
 appropriate subclass. For example if the server sends error code 1, then the method will
 return a `MyApplicationError1` instance, even though that class is defined in _your
 code_! The library uses some metaclass black magic to make this work.
+
+## Back Pressure
+
+As a SANS I/O library, this package does not implement any sort of flow control. If the
+peer is sending you data faster than you can handle it, and you keep reading it, then
+your process's memory usage will continually grow until it runs out of memory or the
+kernel terminates it. Back pressure means signalling to the peer that it should stop
+sending data for a bit until your process can catch up. The specifics of back pressure
+really depend on what transport protocol and I/O framework you are using. For example,
+TCP has flow control capabilities, and most implementations will automatically apply
+back pressure if you simply stop reading from the socket. Therefore, if you use TCP with
+this library, you should be careful to read from the socket only when you are ready to
+process another message. If you eagerly read from the socket into an unbounded user
+space buffer (such as a queue), then your code will not benefit from TCP's flow control,
+because the kernel will see an empty buffer and it will keep filling it up.
 
 ## Developing
 

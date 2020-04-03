@@ -1,8 +1,11 @@
 check: mypy test
 
+coverage:
+	poetry run codecov
+
 mypy:
-	mypy sansio_jsonrpc/
+	poetry run mypy sansio_jsonrpc/
 
 test:
-	pytest --cov=sansio_jsonrpc/ tests/
-	coverage report -m
+	poetry run pytest --cov=sansio_jsonrpc/ tests/
+	poetry run coverage report -m

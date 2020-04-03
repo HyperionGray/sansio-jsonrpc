@@ -178,45 +178,31 @@ def test_response_from_json():
     assert resp2.error.message == "An error occurred"
 
 
-def test_client_multiplex_requests_and_responses():
-    """
-    This test sends 2 requests and the client receives the responses in backwards
-    order.
-
-    This tests that multiplexing is working.
-    """
+def test_client_request_result():
     client = JsonRpcPeer()
-    handle_response = Mock()
-    client.request(
-        callback=handle_response, method="hello_world", params={"foo": "bar"}
+    req_id, bytes_to_send = client.request(method="hello_world", params={"foo": "bar"})
+    messages = client.parse(
+        b'{"id": 0, "result": {"goodbye": "farewell"}, "jsonrpc": "2.0"}'
     )
-    handle_response2 = Mock()
-    client.request(callback=handle_response2, method="goodbye_world")
+    for resp in messages:
+        assert resp.id == req_id
+        assert resp.success
+        assert resp.result == {"goodbye": "farewell"}
+        assert resp.error is None
 
-    # When the client receives this response, it will invoke the corresponding callback.
-    resp2 = client.recv(
-        b'{"id":1, "result": {"goodbye": "farewell"}, "jsonrpc": "2.0"}'
-    )
-    assert handle_response.call_count == 0
-    assert handle_response2.call_count == 1
-    resp2 = handle_response2.call_args[0][0]
-    assert resp2.id == 1
-    assert resp2.success
-    assert resp2.result == {"goodbye": "farewell"}
-    assert resp2.error is None
 
-    # When the client receives this response, it will invoke the other callback.
-    resp = client.recv(
-        b'{"id":0, "error": {"code": -32700, "message": "Error"}, "jsonrpc": "2.0"}'
+def test_client_request_error():
+    client = JsonRpcPeer()
+    req_id, bytes_to_send = client.request(method="hello_world")
+    messages = client.parse(
+        b'{"id": 0, "error": {"code": -32700, "message": "Error"}, "jsonrpc": "2.0"}'
     )
-    assert handle_response.call_count == 1
-    assert handle_response2.call_count == 1
-    resp = handle_response.call_args[0][0]
-    assert resp.id == 0
-    assert not resp.success
-    assert resp.result is None
-    assert resp.error.code == -32700
-    assert resp.error.message == "Error"
+    for resp in messages:
+        assert resp.id == req_id
+        assert not resp.success
+        assert resp.result is None
+        assert resp.error.code == -32700
+        assert resp.error.message == "Error"
 
 
 def test_client_notify():
@@ -229,24 +215,15 @@ def test_client_notify():
     }
 
 
-def test_client_does_not_handle_requests():
-    client = JsonRpcPeer()
-    with pytest.raises(JsonRpcInternalError):
-        client.recv(b'{"id": 0, "method": "hello_world", "jsonrpc": "2.0"}')
+def test_server_handle_request_result():
+    server = JsonRpcPeer()
+    messages = server.parse(b'{"id": 0, "method": "get_foo", "jsonrpc": "2.0"}')
 
-
-def test_server_handle_request():
-    handle_request = Mock()
-    server = JsonRpcPeer(request_handler=handle_request)
-
-    # The first request gets a success response.
-    server.recv(b'{"id": 0, "method": "get_foo", "jsonrpc": "2.0"}')
-    assert handle_request.call_count == 1
-    req = handle_request.call_args[0][0]
-    assert req.id == 0
-    assert req.method == "get_foo"
-    assert req.params is None
-    assert req.jsonrpc == "2.0"
+    for req in messages:
+        assert req.id == 0
+        assert req.method == "get_foo"
+        assert req.params is None
+        assert req.jsonrpc == "2.0"
 
     bytes_to_send = server.respond_with_result(req, {"foo": 1})
     assert parse_bytes(bytes_to_send) == {
@@ -255,14 +232,16 @@ def test_server_handle_request():
         "jsonrpc": "2.0",
     }
 
-    # The second request gets an error response.
-    server.recv(b'{"id": 0, "method": "get_bar", "jsonrpc": "2.0"}')
-    assert handle_request.call_count == 2
-    req2 = handle_request.call_args[0][0]
-    try:
-        raise JsonRpcMethodNotFoundError("Method not found: get_bar")
-    except JsonRpcException as jre:
-        bytes_to_send = server.respond_with_error(req2, jre.get_error())
+
+def test_server_handle_request_error():
+    server = JsonRpcPeer()
+    messages = server.parse(b'{"id": 0, "method": "get_bar", "jsonrpc": "2.0"}')
+    for req in messages:
+        try:
+            raise JsonRpcMethodNotFoundError("Method not found: get_bar")
+        except JsonRpcException as jre:
+            bytes_to_send = server.respond_with_error(req, jre.get_error())
+
     assert parse_bytes(bytes_to_send) == {
         "id": 0,
         "error": {"code": -32601, "message": "Method not found: get_bar"},
@@ -270,19 +249,34 @@ def test_server_handle_request():
     }
 
 
+def test_server_handle_invalid_message():
+    """ This message is neither a request nor a response. """
+    server = JsonRpcPeer()
+    with pytest.raises(JsonRpcInternalError):
+        messages = server.parse(b'{"id": 0, "jsonrpc": "2.0"}')
+
+
 def test_server_json_parse_error():
     server = JsonRpcPeer()
 
     # Invalid ASCII
-    with pytest.raises(JsonRpcParseError):
-        server.recv(b"\xff")
+    with pytest.raises(JsonRpcParseError) as exc_info:
+        server.parse(b"\xff")
+    jrpe = exc_info.value
+    bytes_to_send = server.respond_with_error(None, jrpe.get_error())
+    assert parse_bytes(bytes_to_send) == {
+        "id": None,
+        "error": {"code": -32700, "message": "Invalid ASCII encoding"},
+        "jsonrpc": "2.0",
+    }
 
     # Invalid JSON
-    with pytest.raises(JsonRpcParseError):
-        server.recv(b"{")
-
-
-def test_response_contains_nonexistent_id():
-    client = JsonRpcPeer()
-    with pytest.raises(JsonRpcInternalError):
-        client.recv(b'{"id": 0, "result": {"foo": "bar"}, "jsonrpc": "2.0"}')
+    with pytest.raises(JsonRpcParseError) as exc_info2:
+        server.parse(b"{")
+    jrpe2 = exc_info2.value
+    bytes_to_send2 = server.respond_with_error(None, jrpe2.get_error())
+    assert parse_bytes(bytes_to_send2) == {
+        "id": None,
+        "error": {"code": -32700, "message": "Invalid JSON format"},
+        "jsonrpc": "2.0",
+    }

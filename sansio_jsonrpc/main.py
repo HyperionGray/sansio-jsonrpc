@@ -15,6 +15,7 @@ from .types import (
     JsonList,
     JsonPrimitive,
     JsonRpcId,
+    JsonRpcParams,
 )
 
 
@@ -46,7 +47,7 @@ class JsonRpcRequest:
 
     id: typing.Union[JsonRpcId, MissingId]
     method: str
-    params: typing.Union[JsonDict, JsonList, None] = None
+    params: typing.Optional[JsonRpcParams] = None
     jsonrpc: str = "2.0"
 
     @property
@@ -109,7 +110,8 @@ class JsonRpcResponse:
 
     def __post_init__(self):
         """ Validate data model. """
-        validate_json_rpc_id(self.id, JsonRpcInternalError)
+        if self.id is not None:
+            validate_json_rpc_id(self.id, JsonRpcInternalError)
 
         if (self.result is None) == (self.error is None):
             raise JsonRpcInternalError(
@@ -177,44 +179,31 @@ class JsonRpcPeer:
     """
 
     def __init__(
-        self,
-        json_dump=None,
-        json_load=None,
-        request_handler: typing.Optional[JsonRpcRequestHandler] = None,
+        self, request_handler: typing.Optional[JsonRpcRequestHandler] = None,
     ):
         """ Constructor """
         self._id_gen = itertools.count()
-        self._json_dump = json_dump or json.dumps
-        self._json_load = json_load or json.loads
-        self._request_handler = request_handler
-        self._request_callbacks: typing.Dict[
-            JsonRpcId, JsonRpcResponseCallback
-        ] = dict()
 
     def request(
-        self,
-        callback: JsonRpcResponseCallback,
-        method: str,
-        params: typing.Optional[JsonDict] = None,
-    ) -> bytes:
+        self, method: str, params: typing.Optional[JsonRpcParams] = None,
+    ) -> typing.Tuple[JsonRpcId, bytes]:
         """
         Create a new request.
 
-        :param callback: A callback function that will be invoked when the response to
-            this request is received.
         :param method: The method to invoke on the JSON-RPC server.
         :param params: Parameters to pass to the remote method.
         """
         request_id = next(self._id_gen)
         req = JsonRpcRequest(id=request_id, method=method, params=params)
-        bytes_to_send = self._json_dump(req.to_json_dict()).encode("ascii")
-        self._request_callbacks[request_id] = callback
-        return bytes_to_send
+        bytes_to_send = json.dumps(req.to_json_dict()).encode("ascii")
+        return request_id, bytes_to_send
 
-    def notify(self, method: str, params: JsonDict = None) -> bytes:
+    def notify(
+        self, method: str, params: typing.Optional[JsonRpcParams] = None
+    ) -> bytes:
         """ Create a notification and return a network representation. """
         req = JsonRpcRequest(id=MissingId(), method=method, params=params)
-        return self._json_dump(req.to_json_dict()).encode("ascii")
+        return json.dumps(req.to_json_dict()).encode("ascii")
 
     def respond_with_result(
         self, request: JsonRpcRequest, result: JsonPrimitive
@@ -224,46 +213,54 @@ class JsonRpcPeer:
         representation.
         """
         resp = JsonRpcResponse(id=typing.cast(JsonRpcId, request.id), result=result)
-        return self._json_dump(resp.to_json_dict()).encode("ascii")
+        return json.dumps(resp.to_json_dict()).encode("ascii")
 
-    def respond_with_error(self, request: JsonRpcRequest, error: JsonRpcError) -> bytes:
+    def respond_with_error(
+        self, request: typing.Optional[JsonRpcRequest], error: JsonRpcError
+    ) -> bytes:
         """
-        Create an error response to a given request and return a network
-        representation.
-        """
-        resp = JsonRpcResponse(id=typing.cast(JsonRpcId, request.id), error=error)
-        return self._json_dump(resp.to_json_dict()).encode("ascii")
+        Create an error response to a given request and return a network representation.
 
-    def recv(self, recv_bytes: bytes) -> None:
+        :param request: If a request ID could be parsed, pass the request object.
+            Otherwise pass None.
+        :param error: The error information to respond with.
         """
-        Receive a network representation and invoke the appropriate callback.
+        # If the request could not be parsed
+        request_id: typing.Optional[JsonRpcId]
+        if request is None:
+            request_id = None
+        else:
+            request_id = typing.cast(JsonRpcId, request.id)
+        resp = JsonRpcResponse(id=request_id, error=error)
+        return json.dumps(resp.to_json_dict()).encode("ascii")
+
+    def parse(
+        self, recv_bytes: bytes
+    ) -> typing.Iterable[typing.Union[JsonRpcRequest, JsonRpcResponse]]:
         """
+        Parse a network representation.
+
+        :returns: an iterable of parsed objects
+        :raises JsonRpcParseError: if the data cannot be parsed
+        """
+
         try:
             recv_str = recv_bytes.decode("ascii")
         except Exception:
-            raise JsonRpcParseError("Invalid ASCII encoding.")
+            raise JsonRpcParseError("Invalid ASCII encoding")
 
         try:
-            recv_dict = self._json_load(recv_str)
+            recv_dict = json.loads(recv_str)
         except:
-            raise JsonRpcParseError("Invalid JSON format.")
+            raise JsonRpcParseError("Invalid JSON format")
 
-        ret: typing.Union[JsonRpcRequest, JsonRpcResponse]
+        messages: typing.Iterable[typing.Union[JsonRpcRequest, JsonRpcResponse]]
 
         if "method" in recv_dict:
-            request = JsonRpcRequest.from_json_dict(recv_dict)
-            if not self._request_handler:
-                raise JsonRpcInternalError(
-                    "Received a JSON-RPC request but no request handler is registered. "
-                    "Are you sure this is a server object?"
-                )
-            self._request_handler(request)
+            messages = (JsonRpcRequest.from_json_dict(recv_dict),)
         elif "result" in recv_dict or "error" in recv_dict:
-            response = JsonRpcResponse.from_json_dict(recv_dict)
-            try:
-                self._request_callbacks[response.id](response)
-            except KeyError:
-                raise JsonRpcInternalError(
-                    f"Received response ID={response.id} which does not match any "
-                    "in-flight request."
-                )
+            messages = (JsonRpcResponse.from_json_dict(recv_dict),)
+        else:
+            raise JsonRpcInternalError("Could parse a request or a response")
+
+        return messages

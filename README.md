@@ -19,7 +19,7 @@ This example illustrates what the library does and how it needs to be integrated
 an I/O framework of your choosing.
 
 ```python
-from sansio_jsonrpc import JsonRpcPeer, JsonRpcException
+from sansio_jsonrpc import JsonRpcPeer, JsonRpcParseError, JsonRpcException
 
 client = JsonRpcPeer()
 request_id, bytes_to_send = client.request(
@@ -47,8 +47,8 @@ choosing.
 ```python
 try:
     messages = client.parse(received_bytes)
-except JsonRpcException as jre:
-    print('Exception while parsing response', jre)
+except JsonRpcParseError as pe:
+    print('Exception while parsing response', pe)
 ```
 
 In this block, we feed the data received from the remote machine into the client
@@ -66,13 +66,21 @@ for response in messages:
         print('success:', response.result)
     else:
         print('error:', response.error)
+        exc = JsonRpcException.exc_from_error(response.error)
 ```
 
 Finally, we iterate over the messages. In the case of a client, these messages will
 always be `JsonRpcReponse` objects, which contain either result or error information.
 The `response.id` field should match the `request_id` obtained earlier.
 
-In concurrent code, you will probably want to multiplex requests and responses on the
+If you want an error response to raise an exception, you can call
+`JsonRpcException.exc_from_error(...)` and it will construct an exception for you. The
+exception system is described in a separate section below. Of course, be careful where
+you throw the exception, since throwing an exception while reading multiple responses
+will result in the rest of the responses being ignored. In a concurrent system, you
+probably want to raise the exception to the code path that called `request()`.
+
+In a concurrent system, you will also want to multiplex requests and responses on the
 same connection. This library does not implement multiplexing itself because
 multiplexing with appropriate flow control (see "Back Pressure" below) is going to
 depend on the transport and I/O framework you are using.
@@ -82,7 +90,12 @@ depend on the transport and I/O framework you are using.
 This example shows how to receive a JSON-RPC request and dispatch a response.
 
 ```python
-from sansio_jsonrpc import JsonRpcPeer, JsonRpcException, JsonRpcMethodNotFoundError
+from sansio_jsonrpc import (
+    JsonRpcPeer,
+    JsonRpcException,
+    JsonRpcParseError,
+    JsonRpcMethodNotFoundError,
+)
 
 server = JsonRpcPeer()
 ```
@@ -110,41 +123,42 @@ This block shows the hypothetical I/O framework again. As a server, we just want
 for a client to send us something.
 
 ```python
-def handle_request(request):
-    # Your application logic goes here.
-    if request.method == 'get_foo':
-        return {'foo': 1}
-    elif request.method == 'get_bar':
-        return {'bar': 2}
-    else:
-        raise JsonRpcMethodNotFoundError()
-
 try:
-    request = server.recv(received_bytes)
-    result = handle_request(request)
-    bytes_to_send = server.respond_with_result(result)
-except JsonRpcException as jre:
-    print('Exception from received data!', jre)
-    bytes_to_send = server.respond_with_error(jre.get_error())
+    messages = server.parse(received_bytes)
+except JsonRpcParseError as pe:
+    bytes_to_send = server.respond_with_error(request=None, error=pe.get_error())
+    connection.send(bytes_to_send)
+    return
 ```
 
-We parse the data received from the network. Then we invoke a handler to service the
-request and create a response. That's where your application logic comes in: you need to
-do something to handle each available method. If you don't have a handler for a given
-method, you should raise `JsonRpcMethodNotFoundError`.
+Next, we want to parse the incoming data. If a parse error is raised here, then we
+should send back a response and we should not iterate over the messages, because
+`messages` was not actually returned!. Because we were unable to parse a request, we set
+`request=None` in the response.
 
-The request and response processing should be wrapped in `try/except` in order to
-gracefully handle errors, either due to a misbehaving client or due to any errors in
-your handler code. The exception handler should also generate a response, since the
-client will want to know that an occurred. We call either
-`server.respond_with_result(...)` or `server.respond_with_error(...)` to create a
-suitable response in network representation.
+```
+for request in messages:
+    assert isinstance(request, JsonRpcRequest)
 
-```python
-connection.send(bytes_to_send)
+    try:
+        # Handle request here and send a response.
+        result = handle_request(request)
+        bytes_to_send = server.respond_with_result(request=request, result=result)
+    except JsonRpcException as jre:
+        bytes_to_send = server.respond_with_error(request=request, error=pe.get_error())
+
+    connection.send(bytes_to_send)
 ```
 
-Finally, we use our hypothetical I/O framework to send the server's response data.
+Next, we iterate over the received messages. For a server, each message should be a
+`JsonRpcRequest`. The implementation of `handle_request(...)` is up to you! You should
+handle each request by returning a result. The `respond_with_result(...)` method
+produces an appropriate JSON-RPC response, which you should then send to the client.
+
+If an error occurs in your handler, you should raise one of the built-in exceptions or a
+custom subclass of `JsonRpcApplicationError`. For example, if you don't have a handler
+for a given method, you should raise `JsonRpcMethodNotFoundError`. Exceptions are
+described more fully below.
 
 ## Exceptions
 

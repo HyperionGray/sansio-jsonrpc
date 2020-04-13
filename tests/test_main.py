@@ -252,7 +252,7 @@ def test_server_handle_request_error():
 def test_server_handle_invalid_message():
     """ This message is neither a request nor a response. """
     server = JsonRpcPeer()
-    with pytest.raises(JsonRpcInternalError):
+    with pytest.raises(JsonRpcParseError):
         messages = server.parse(b'{"id": 0, "jsonrpc": "2.0"}')
 
 

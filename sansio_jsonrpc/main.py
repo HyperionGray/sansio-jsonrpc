@@ -261,6 +261,8 @@ class JsonRpcPeer:
         elif "result" in recv_dict or "error" in recv_dict:
             messages = (JsonRpcResponse.from_json_dict(recv_dict),)
         else:
-            raise JsonRpcInternalError("Could parse a request or a response")
+            msg = "Could parse a request or a response: "
+            example = recv_str[:100] + ("..." if len(recv_str) > 100 else "")
+            raise JsonRpcParseError(msg + example)
 
         return messages

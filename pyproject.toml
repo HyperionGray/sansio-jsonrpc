@@ -3,10 +3,17 @@ line-length = 88
 
 [tool.poetry]
 name = "sansio-jsonrpc"
-version = "0.1.0"
+version = "0.2.0-dev"
 description = "JSON-RPC v2.0 Sans I/O"
 license = "MIT"
 authors = ["Mark E. Haase <mehaase@gmail.com>"]
+readme = "README.md"
+homepage = "https://github.com/hyperiongray/sansio-jsonrpc"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Topic :: Internet"
+]
 
 [tool.poetry.dependencies]
 python = "^3.7"

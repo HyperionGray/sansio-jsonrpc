@@ -13,7 +13,7 @@ install:
   - poetry install
 
 script:
-  - make check
+  - poetry run make check
 
 after_success:
-  - make coverage
+  - poetry run make coverage

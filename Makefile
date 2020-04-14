@@ -1,11 +1,14 @@
+# The targets in this makefile should be executed inside Poetry, i.e. `poetry run make
+# check`.
+
 check: mypy test
 
 coverage:
-	poetry run codecov
+	codecov
 
 mypy:
-	poetry run mypy sansio_jsonrpc/
+	mypy sansio_jsonrpc/
 
 test:
-	poetry run pytest --cov=sansio_jsonrpc/ tests/
-	poetry run coverage report -m
+	pytest --cov=sansio_jsonrpc/ tests/
+	coverage report -m

@@ -195,7 +195,7 @@ class JsonRpcPeer:
         """
         request_id = next(self._id_gen)
         req = JsonRpcRequest(id=request_id, method=method, params=params)
-        bytes_to_send = json.dumps(req.to_json_dict()).encode("ascii")
+        bytes_to_send = json.dumps(req.to_json_dict()).encode("utf8")
         return request_id, bytes_to_send
 
     def notify(
@@ -203,7 +203,7 @@ class JsonRpcPeer:
     ) -> bytes:
         """ Create a notification and return a network representation. """
         req = JsonRpcRequest(id=MissingId(), method=method, params=params)
-        return json.dumps(req.to_json_dict()).encode("ascii")
+        return json.dumps(req.to_json_dict()).encode("utf8")
 
     def respond_with_result(
         self, request: JsonRpcRequest, result: JsonPrimitive
@@ -213,7 +213,7 @@ class JsonRpcPeer:
         representation.
         """
         resp = JsonRpcResponse(id=typing.cast(JsonRpcId, request.id), result=result)
-        return json.dumps(resp.to_json_dict()).encode("ascii")
+        return json.dumps(resp.to_json_dict()).encode("utf8")
 
     def respond_with_error(
         self, request: typing.Optional[JsonRpcRequest], error: JsonRpcError

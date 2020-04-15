@@ -232,7 +232,7 @@ class JsonRpcPeer:
         else:
             request_id = typing.cast(JsonRpcId, request.id)
         resp = JsonRpcResponse(id=request_id, error=error)
-        return json.dumps(resp.to_json_dict()).encode("ascii")
+        return json.dumps(resp.to_json_dict()).encode("utf8")
 
     def parse(
         self, recv_bytes: bytes
@@ -245,7 +245,7 @@ class JsonRpcPeer:
         """
 
         try:
-            recv_str = recv_bytes.decode("ascii")
+            recv_str = recv_bytes.decode("utf8")
         except Exception:
             raise JsonRpcParseError("Invalid ASCII encoding")
 

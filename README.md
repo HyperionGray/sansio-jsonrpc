@@ -4,7 +4,7 @@
 ![Python Versions](https://img.shields.io/pypi/pyversions/sansio-jsonrpc.svg?style=flat-square)
 ![MIT License](https://img.shields.io/github/license/HyperionGray/sansio-jsonrpc.svg?style=flat-square)
 [![Build Status](https://img.shields.io/travis/com/HyperionGray/sansio-jsonrpc.svg?style=flat-square&branch=master)](https://travis-ci.com/HyperionGray/sansio-jsonrpc)
-[![codecov](https://codecov.io/gh/HyperionGray/sansio-jsonrpc/branch/master/graph/badge.svg)](https://codecov.io/gh/HyperionGray/sansio-jsonrpc)
+[![codecov](https://img.shields.io/codecov/c/github/hyperiongray/sansio-jsonrpc?style=flat-square)](https://codecov.io/gh/HyperionGray/sansio-jsonrpc)
 
 This project provides [a Sans I/O](https://sans-io.readthedocs.io/) implementation of
 [JSON-RPC v 2.0](https://www.jsonrpc.org/specification). This means that the library

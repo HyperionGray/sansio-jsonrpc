@@ -104,7 +104,7 @@ class JsonRpcResponse:
     """ Represents a JSON RPC response. """
 
     id: JsonRpcId
-    result: typing.Optional[JsonPrimitive] = None
+    result: typing.Optional[JsonDict] = None
     error: typing.Optional[JsonRpcError] = None
     jsonrpc: str = "2.0"
 
@@ -154,7 +154,7 @@ class JsonRpcResponse:
         return cls(
             id=typing.cast(typing.Union[int, str, None], json_dict["id"]),
             error=error,
-            result=result,
+            result=typing.cast(JsonDict, result),
             jsonrpc=typing.cast(str, json_dict["jsonrpc"]),
         )
 
@@ -206,7 +206,7 @@ class JsonRpcPeer:
         return json.dumps(req.to_json_dict()).encode("utf8")
 
     def respond_with_result(
-        self, request: JsonRpcRequest, result: JsonPrimitive
+        self, request: JsonRpcRequest, result: JsonDict
     ) -> bytes:
         """
         Create a success response to a given request and return a network

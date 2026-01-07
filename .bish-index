@@ -1,0 +1,10 @@
+./sansio_jsonrpc/types.py
+./sansio_jsonrpc/exc.py
+./sansio_jsonrpc/__init__.py
+./sansio_jsonrpc/main.py
+./AGENTS.md
+./README.md
+./LICENSE.md
+./tests/test_main.py
+./tests/test_exc.py
+./tests/__init__.py
